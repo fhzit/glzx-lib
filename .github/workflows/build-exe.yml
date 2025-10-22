@@ -1,0 +1,54 @@
+name: Build Windows EXE (PyInstaller)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'reading_app/**'
+      - '.github/workflows/build-exe.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'reading_app/**'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: reading_app/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r reading_app/requirements.txt
+          pip install pyinstaller==6.10.*
+
+      - name: Build EXE with PyInstaller (windowed, no console)
+        run: |
+          pyinstaller --noconfirm --clean --name "reading_app" --onefile --windowed `
+            --add-data "reading_app\\config.json;." `
+            --add-data "reading_app\\rules.md;." `
+            reading_app\\main.py
+
+      - name: Show dist
+        run: |
+          Get-ChildItem -Recurse -Path dist | Format-List -Property FullName,Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reading_app-windows-exe
+          path: dist/reading_app.exe
+          if-no-files-found: error

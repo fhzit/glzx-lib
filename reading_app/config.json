@@ -1,0 +1,10 @@
+{
+  "title": "桂林中学电子阅览室规章制度",
+  "lock_seconds": 10,
+  "window": {
+    "width": 900,
+    "height": 600
+  },
+  "font_point_size": 12,
+  "requirements_markdown": "rules.md"
+}
