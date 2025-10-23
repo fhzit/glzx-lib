@@ -46,9 +46,17 @@ jobs:
         run: |
           Get-ChildItem -Recurse -Path dist | Format-List -Property FullName,Length
 
+      - name: Copy config files to dist
+        run: |
+          Copy-Item "reading_app\config.json" -Destination "dist\config.json"
+          Copy-Item "reading_app\rules.md" -Destination "dist\rules.md"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: reading_app-windows-exe
-          path: dist/reading_app.exe
+          path: |
+            dist/reading_app.exe
+            dist/config.json
+            dist/rules.md
           if-no-files-found: error
