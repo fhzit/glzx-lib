@@ -1,5 +1,7 @@
 import sys
 import json
+import time
+import math
 import ctypes
 from ctypes import wintypes
 from pathlib import Path
@@ -96,7 +98,17 @@ def load_rules_html(markdown_file: str):
         return "<p>规则内容未找到。</p>"
     text = md_path.read_text(encoding="utf-8")
     if markdown:
-        return markdown.markdown(text)
+        html_content = markdown.markdown(text)
+        # Replace the last paragraph (桂林中学图书馆) with right-aligned version
+        html_content = html_content.replace("<p>桂林中学图书馆</p>", '<p style="text-align: right;">桂林中学图书馆</p>')
+        # Add CSS to center the first h1 element
+        styled_html = f"""
+        <style>
+            h1 {{ text-align: center; }}
+        </style>
+        {html_content}
+        """
+        return styled_html
     # Fallback: simple newline to <p>
     return "<pre>" + (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")) + "</pre>"
 
@@ -112,6 +124,7 @@ class ReadWindow(QMainWindow):
         cfg_lock = CFG.get("lock_seconds") if isinstance(CFG, dict) else None
         self.lock_seconds = max(1, int(cfg_lock if cfg_lock is not None else lock_seconds))
         self.remaining = self.lock_seconds
+        self._deadline = None  # monotonic deadline in seconds
         # Timers (set during enforcement)
         self._mouse_lock_timer = None
         self._countdown_timer = None
@@ -121,7 +134,13 @@ class ReadWindow(QMainWindow):
         # Window properties from config
         title = CFG.get("title", "电子阅览室规章制度") if isinstance(CFG, dict) else "电子阅览室规章制度"
         self.setWindowTitle(title)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        # Set window flags to stay on top and disable minimize button
+        self.setWindowFlags(
+            Qt.WindowStaysOnTopHint | 
+            Qt.CustomizeWindowHint | 
+            Qt.WindowTitleHint | 
+            Qt.WindowCloseButtonHint
+        )
         win = CFG.get("window", {}) if isinstance(CFG, dict) else {}
         w = int(win.get("width", 900))
         h = int(win.get("height", 600))
@@ -149,7 +168,7 @@ class ReadWindow(QMainWindow):
         self.info.setAlignment(Qt.AlignCenter)
         self.info.setText(f"请认真阅读，上述内容将显示 {self.lock_seconds} 秒，期间键鼠被限制…")
 
-        self.close_btn = QPushButton("我已阅读，关闭窗口", self)
+        self.close_btn = QPushButton("我已阅读并且同意遵守该规定，关闭窗口", self)
         self.close_btn.setEnabled(False)
         self.close_btn.clicked.connect(self.safe_close)
 
@@ -167,6 +186,14 @@ class ReadWindow(QMainWindow):
         self.center_on_screen()
         self.force_topmost()
         self.start_enforcement()
+
+    def changeEvent(self, event):
+        # Prevent window from being minimized
+        if event.type() == event.Type.WindowStateChange:
+            if self.windowState() & Qt.WindowMinimized:
+                self.setWindowState(Qt.WindowActive)
+                self.force_topmost()
+        super().changeEvent(event)
 
     def center_on_screen(self):
         screen = QApplication.primaryScreen()
@@ -208,9 +235,12 @@ class ReadWindow(QMainWindow):
             except Exception:
                 self._cursor_hidden = False
         # Countdown timer
+        self._deadline = time.monotonic() + self.lock_seconds
         self._countdown_timer = QTimer(self)
         self._countdown_timer.timeout.connect(self._tick)
-        self._countdown_timer.start(1000)
+        self._countdown_timer.start(250)  # higher refresh to avoid drift and off-by-one
+        # Initialize remaining display
+        self.remaining = max(0, int(math.ceil(self._deadline - time.monotonic())))
         self.update_info()
         # Immediately move cursor to center
         self._hold_cursor_center()
@@ -232,10 +262,17 @@ class ReadWindow(QMainWindow):
             pass
 
     def _tick(self):
-        self.remaining -= 1
-        if self.remaining <= 0:
+        # Calculate remaining based on monotonic deadline to avoid drift
+        if self._deadline is None:
+            return
+        rem = math.ceil(self._deadline - time.monotonic())
+        if rem <= 0:
+            self.remaining = 0
             self.release_enforcement()
-        else:
+            return
+        # Update label only when value changes
+        if int(rem) != self.remaining:
+            self.remaining = int(rem)
             self.update_info()
 
     def update_info(self):
@@ -246,6 +283,7 @@ class ReadWindow(QMainWindow):
         if self._countdown_timer:
             self._countdown_timer.stop()
             self._countdown_timer = None
+        self._deadline = None
         if self._mouse_lock_timer:
             self._mouse_lock_timer.stop()
             self._mouse_lock_timer = None
@@ -296,17 +334,16 @@ class ReadWindow(QMainWindow):
             self._kb_proc = None
 
     def closeEvent(self, event):
-        # Prevent closing during lock period
-        if self.remaining > 0:
-            event.ignore()
-            self.force_topmost()
-        else:
-            # Cleanup just in case
-            self.release_enforcement()
-            super().closeEvent(event)
+        # Always prevent closing via X button, only allow closing via the button
+        event.ignore()
+        self.force_topmost()
 
     def safe_close(self):
-        self.close()
+        # Cleanup enforcement
+        self.release_enforcement()
+        # Quit the application and exit the process
+        QApplication.quit()
+        sys.exit(0)
 
 
 def main():
