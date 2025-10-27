@@ -101,6 +101,8 @@ def load_rules_html(markdown_file: str):
         html_content = markdown.markdown(text)
         # Replace the last paragraph (桂林中学图书馆) with right-aligned version
         html_content = html_content.replace("<p>桂林中学图书馆</p>", '<p style="text-align: right;">桂林中学图书馆</p>')
+        # Replace the date paragraph with right-aligned version
+        html_content = html_content.replace("<p>2025年10月1日</p>", '<p style="text-align: right;">2025年10月1日</p>')
         # Add CSS to center the first h1 element
         styled_html = f"""
         <style>
